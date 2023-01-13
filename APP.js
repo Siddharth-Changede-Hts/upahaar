@@ -58,10 +58,7 @@ app.post("/updateAdmin", async (req, res) => {
     .update({
       first_name: d.first_name,
       last_name: d.last_name,
-      //year_experience=d.year_experience,
-      // degree=d.degree,
       status: d.status,
-      photo_url: d.photo_url,
     })
     .select("*")
     .maybeSingle()
@@ -114,28 +111,29 @@ app.put("/Update", async (req, res) => {
 app.post("/registrationTeacher", async (req, res) => {
   const post = req.body;
   console.log(req.body);
-  const { data, error } = await supabase.auth.admin.createUser({
+
+  const createUserResponse = await supabase.auth.admin.createUser({
     email: post.email,
     password: post.password,
     email_confirm: true,
   });
-  console.log(data);
-  let errca = "";
-  try {
-    const { insertData, errorData } = await supabase
+  if (createUserResponse.data.user) {
+    const insertData = await supabase
       .from("teacher")
-
-      .insert([
-        { teacher_id: data.user.id, email: data.user.email },
-        // { some_column: 'otherValue' },
-      ]);
-  } catch (errorData) {
-    errca = errorData.toString();
-    console.log(errca);
+      .insert({
+        teacher_id: createUserResponse.data.user.id,
+        email: createUserResponse.data.user.email,
+        created_at: createUserResponse.data.user.created_at,
+        updated_at: createUserResponse.data.user.updated_at,
+      })
+      .select("*")
+      .maybeSingle();
+    //  console.log(created_at)
+    res.send(insertData);
+    // please tell this one
+  } else {
+    res.send({ error: createUserResponse.error });
   }
-
-  // console.log(teacher_id)
-  res.send({ data, error, errca });
 });
 //  5
 app.post("/teacherLogin", async (req, res) => {
@@ -150,14 +148,16 @@ app.post("/teacherLogin", async (req, res) => {
 //7
 app.post("/updateTeacher", async (req, res) => {
   const d = req.body;
+  let postData = { ...d };
+  delete postData.teacher_id;
+
+  console.log(postData);
+
   const update = await supabase
     .from("teacher")
-    .update({
-      first_name: d.first_name,
-      last_name: d.last_name,
-      //year_experience :d.year_experience,
-      degree: d.degree,
-    })
+    .update(postData)
+    .select("*")
+    .maybeSingle()
     .eq("teacher_id", d.teacher_id);
 
   res.send(update);
@@ -295,28 +295,43 @@ app.post("/deleteR", async (req, res) => {
 app.post("/addCourse", async (req, res) => {
   const po = req.body;
 
-  insertDat = await supabase.from("course").insert({
-    admin_id: po.admin_id,
-    title: po.title,
-    description: po.description,
-    updated_at: new Date(),
-  }).select("*").maybeSingle();
+  insertDat = await supabase
+    .from("course")
+    .insert({
+      admin_id: po.admin_id,
+      title: po.title,
+      description: po.description,
+      updated_at: new Date(),
+    })
+    .select("*")
+    .maybeSingle();
 
   res.send(insertDat);
 });
 
 app.post("/updateCourseById", async (req, res) => {
   const po = req.body;
-  let postData = {...req.body};
+  let postData = { ...req.body };
   delete postData.course_id;
-  insertDat = await supabase.from("course").update(postData).eq("course_id", po.course_id).select("*").maybeSingle();
+  insertDat = await supabase
+    .from("course")
+    .update(postData)
+    .eq("course_id", po.course_id)
+    .select("*")
+    .maybeSingle();
   res.send(insertDat);
 });
 app.post("/updateSubjectById", async (req, res) => {
   const po = req.body;
-  let postData = {...req.body};
+  let postData = { ...req.body };
   delete postData.subject_id;
-  insertDat = await supabase.from("subject").update(postData).eq("subject_id", po.subject_id).select("*").maybeSingle();
+
+  insertDat = await supabase
+    .from("subject")
+    .update(postData)
+    .eq("subject_id", po.subject_id)
+    .select("*")
+    .maybeSingle();
   res.send(insertDat);
 });
 
@@ -404,25 +419,30 @@ app.post("/addSubjectToCourse", async (req, res) => {
 //  15  teacher-subject table
 app.post("/addCourseAndSubjectToTeacher", async (req, res) => {
   const po = req.body;
-  //res.send({ data ,error} )// email id already registered
-  let err = "";
-  let insertDat;
-  try {
-    insertDat = await supabase
-      .from("teacher-subject")
+  const insertDat = await supabase
+    .from("teacher-subject")
+    .insert(po)
+    .select("*")
+    .maybeSingle();
 
-      //  .insert([
-      //    { subject_id:po.subject_id ,teacher_id:po.teacher_id,price:po.price,expertise_description:po.expertise_description}
-      //  // { some_column: 'otherValue' },
-      // ])
-      .insert(po);
-  } catch (errorData) {
-    err = errorData.toString();
-    console.log(err);
-  }
-  console.log(insertDat);
   res.send(insertDat);
 });
+
+app.post("/UpdateCourseAndSubjectToTeacherById", async (req, res) => {
+  const po = req.body;
+  let postData = { ...req.body };
+  delete postData['teacher-subject_id'];
+
+  const insertDat = await supabase
+    .from("teacher-subject")
+    .update(po)
+    .eq("teacher-subject_id", po['teacher-subject_id'])
+    .select("*")
+    .maybeSingle();
+
+  res.send(insertDat);
+});
+
 //  ? get teacher_subject table
 app.get("/getSubTeach", async (req, res) => {
   let { data, error } = await supabase.from("teacher-subject").select("*");
@@ -625,19 +645,15 @@ app.post(
   "/teacherUploadImage",
   multer({ storage: storage }).single("photo"),
   async (req, res) => {
-    const { data, error } = await supabase.storage
+    const uploadObj = await supabase.storage
       .from("teacher")
-      .upload(
-        req.body.id + "." + req.file.originalname.split(".")[1],
-        req.file.buffer,
-        {
-          cacheControl: "3600",
-          upsert: true,
-        }
-      );
+      .upload(req.body.id + ".webp", req.file.buffer, {
+        cacheControl: "3600",
+        upsert: true,
+      });
     const url = supabase.storage
       .from("teacher")
-      .getPublicUrl(req.body.id + "." + req.file.originalname.split(".")[1]);
+      .getPublicUrl(uploadObj.data.path);
     const updatedata = await supabase
       .from("teacher")
       .update({
@@ -645,7 +661,7 @@ app.post(
       })
       .eq("teacher_id", req.body.id);
 
-    res.send(url.data);
+    res.send(updatedata);
     //res.send(data)
   }
 );
@@ -681,7 +697,8 @@ app.get("/getTeacherById", async (req, res) => {
   const data = await supabase
     .from("teacher")
     .select("*,teacher-subject!left(*)")
-    .eq("teacher_id", req.query.teacher_id);
+    .eq("teacher_id", req.query.teacher_id)
+    .maybeSingle();
   res.send(data);
 });
 
